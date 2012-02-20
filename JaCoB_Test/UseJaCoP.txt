@@ -1,0 +1,4 @@
+Store store = new Store();
+IntVar x = new IntVar(store, "X", 1, 100); 
+x.addDom(120, 160);
+
