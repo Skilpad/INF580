@@ -9,8 +9,6 @@ import JaCoP.search.*;
 
 public class JaCoP_solver {
 
-	public boolean single_reaction = true;
-	
 	private static final int LEFT  = 0;
 	private static final int RIGHT = 1;
 	private static final int UP    = 2;
@@ -25,6 +23,8 @@ public class JaCoP_solver {
 	private IntVar energy[][][]; 		// energy[x][y][t] := energy of the atom in the cell (x,y) at t instant, -5 iff cell is void. (Thus, when cell is void, energy[x][y][t] + incoming energies < maximalEnergy. Less tests requires for explosion detection.)
 	private IntVar neutrino[][][][]; 	// With d a direction, if the cell (x,y) contains a neutrino traveling in direction d at t instant, neutrino[x][y][d][t] = 1 , else neutrino[x][y][d][t] = 0.
 	private IntVar action[][][];		// At t instant, if energy is given to cell (x,y), action[x][y][t] = 1 else action[x][y][t] = 0.
+	
+	private PrimitiveConstraint success[];		// success[t] = true iff every atom is destroyed.
 
 	
 	public JaCoP_solver(int[][] initialField) {
@@ -48,11 +48,12 @@ public class JaCoP_solver {
 				}
 			}
 		}
+		setSuccessConstraints();
 		setInitialConstraints(initialField);
 		setTransitionConstraints();
-		if (single_reaction) setSingleReaction();
+		setSingleReaction();
 	}
-
+	
 	
 	/** Set initial constraints **/
 	private void setInitialConstraints(int[][] initialField) {
@@ -133,45 +134,74 @@ public class JaCoP_solver {
 	/** Forbids parallel chain reactions **/
 	private void setSingleReaction() {
 		for (int t = 0; t < maximalTime; t++) {
-			IntVar neutrinosCount = new IntVar(store, "Neutrinos Count at "+t, 0, 1);
-			IntVar actCount       = new IntVar(store, "Actions Count at "+t, 0, 1);
-			IntVar p[] = new IntVar[4*width*height];
+			IntVar neutrinosCount = new IntVar(store, "Neutrinos Count at "+t, 0, 4*width*height);
+			IntVar actCount       = new IntVar(store, "Actions Count at "+t, 0, width*height);
+			IntVar n[] = new IntVar[4*width*height];
 			IntVar a[] = new IntVar[width*height];
 			for (int x = 0; x < width; x++) {
 				for (int y = 0; y < height; y++) {
 					a[x+y*width] = action[x][y][t];
-					p[4*(x+y*width)  ] = neutrino[x][y][t][LEFT];
-					p[4*(x+y*width)+1] = neutrino[x][y][t][RIGHT];
-					p[4*(x+y*width)+2] = neutrino[x][y][t][DOWN];
-					p[4*(x+y*width)+3] = neutrino[x][y][t][UP];
+					n[4*(x+y*width)  ] = neutrino[x][y][t][LEFT];
+					n[4*(x+y*width)+1] = neutrino[x][y][t][RIGHT];
+					n[4*(x+y*width)+2] = neutrino[x][y][t][DOWN];
+					n[4*(x+y*width)+3] = neutrino[x][y][t][UP];
 				}
 			}
-			store.impose(new Sum(a, actCount));
-			store.impose(new Sum(p, neutrinosCount));
+			store.impose(new Count(n, neutrinosCount, 1));
+			store.impose(new Count(a, actCount, 1));
+			
 			// If there are neutrinos, there is no action. Else, there exactly 1 action.
-			// TODO: Maybe there is a better way to impose only 1 action that is not 0.
-			// TODO: What is better? This:
-//			store.impose(new IfThenElse(new XgtC(neutrinosCount, 0), new XeqC(actCount, 0), new XeqC(actCount, 1)));
-			// TODO: Or this:
-			store.impose(new IfThen(new XeqC(neutrinosCount, 0), new XeqC(actCount, 1)));
+			PrimitiveConstraint mustPlay_[] = {new Not(success[t]), new XeqC(neutrinosCount, 0)};
+			PrimitiveConstraint mustPlay = new And(mustPlay_);
+			PrimitiveConstraint whenNoPlay[] = new PrimitiveConstraint[width*height];
 			for (int x = 0; x < width; x++)
 				for (int y = 0; y < height; y++)
-					store.impose(new IfThen(new XgtC(neutrinosCount, 0), new XeqC(action[x][y][t],0)));
-			
+					whenNoPlay[x+width*y] = new XeqC(action[x][y][t],0);
+					
+			store.impose(new IfThenElse(mustPlay, new XeqC(actCount, 1), new And(whenNoPlay)));
+			// TODO: Maybe more efficient:
+			//        - At any time: for each cells (c,c'), [c = 1] => [c' = 0]
+			//        - If mustPlay, then Or(c = 1 | cells c)
 		}
 	}
-
+	
+	
+	/** Set end constraints **/
+	private void setSuccessConstraints() {
+		// Success <=> every cell is empty
+		for (int t = 0; t < maximalTime; t++) {
+			PrimitiveConstraint voidCell[] = new PrimitiveConstraint[width*height];
+			for (int x = 0; x < width; x++) {
+				for (int y = 0; y < height; y++) {
+					// voidCell <=> [energy = VOID]
+					voidCell[x+y*width] = new XeqC(energy[x][y][t], VOID);
+				}
+			}
+			success[t] = new And(voidCell);
+		}
+		// Success[t] => Success[t+1]
+		for (int t = 1; t < maximalTime; t++) store.impose(new IfThen(success[t-1], success[t]));
+	}
+	
 	
 	/** Solves the CSP. Returns the list of energy gifts. **/
 	public LinkedList<int[]> solve() {
 		LinkedList<int[]> res = new LinkedList<int[]>();
-		Search<IntVar> search = new DepthFirstSearch<IntVar>(); 
+		Search<IntVar> search = new DepthFirstSearch<IntVar>();
+		IntVar action_[][] = new IntVar[width*height][maximalTime];  // action[x][y][t]
+		for (int x = 0; x < width; x++)
+			for (int y = 0; y < height; y++)
+				for (int t = 0; t < maximalTime; t++)
+					action_[x+y*width][t] = action[x][y][t];
 		SelectChoicePoint<IntVar> select = 
-			new SimpleMatrixSelect<IntVar>(pr,
+			new SimpleMatrixSelect<IntVar>(action_,
 					new SmallestDomain(),
 					new MostConstrainedDynamic(),
 					new IndomainMin<IntVar>());
 		boolean result = search.labeling(store, select);
+		if (!result) return res;
+		
+		
 	}
 	
 }

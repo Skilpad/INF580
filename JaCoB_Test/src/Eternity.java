@@ -112,7 +112,7 @@ public class Eternity {
 
 
 	static void solve() {
-		Search<IntVar> search = new DepthFirstSearch<IntVar>(); 
+		Search<IntVar> search = new DepthFirstSearch<IntVar>();
 		SelectChoicePoint<IntVar> select = 
 			new SimpleMatrixSelect<IntVar>(pr,
 					new SmallestDomain(),
