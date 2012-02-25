@@ -198,6 +198,11 @@ public class JaCoP_solver {
 				for (int y = 0; y < size; y++)
 					if (x != y) store.impose(new IfThen(new XeqC(act[t][x], 1), new XeqC(act[t][y], 0)));
 		
+		//  Act only on non-empty cells
+		for (int t = 0; t < tmax; t++) 
+			for (int x = 0; x < size; x++)
+				store.impose(new IfThen(empty[t][x], new XeqC(act[t][x], 0)));
+		
 		// Do not act when not required
 		// BN: This part is redundant, but could fasten the solver.
 		for (int t = 0; t < tmax; t++) 
@@ -239,21 +244,6 @@ public class JaCoP_solver {
 	 *    -  else                      ->  the DFS is continued, with additional constraint cost < found_cost.
 	 **/
 	public LinkedList<int[]> solve(int variable_selection_mode, int value_selection_mode, boolean restart_search) {
-//		LinkedList<int[]> res = new LinkedList<int[]>();
-//		Search<IntVar> search = new DepthFirstSearch<IntVar>();
-//		IntVar action_[][] = new IntVar[width*height][maximalTime];  // action[x][y][t]
-//		for (int x = 0; x < width; x++)
-//			for (int y = 0; y < height; y++)
-//				for (int t = 0; t < maximalTime; t++)
-//					action_[x+y*width][t] = action[x][y][t];
-//		SelectChoicePoint<IntVar> select = 
-//			new SimpleMatrixSelect<IntVar>(action_,
-//					new SmallestDomain(),
-//					new MostConstrainedDynamic(),
-//					new IndomainMin<IntVar>());
-//		boolean result = search.labeling(store, select);
-//		if (!result) return res;
-//		
 		
 		Search<IntVar> label = new DepthFirstSearch<IntVar>();
 		
@@ -297,8 +287,10 @@ public class JaCoP_solver {
 		
 		if (!success) return null;
 		
+		// TODO: Return result
+		throw new Error("To be completed");
+		
 	}
-	
 	
 	
 	
